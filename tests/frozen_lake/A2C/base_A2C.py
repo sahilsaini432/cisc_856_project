@@ -1,6 +1,8 @@
 from stable_baselines3 import A2C
 import torch as th
 
+# Ths files shows the structure to create a agent using A2C as base
+
 
 class ModA2C(A2C):
     def __init__(self, *args, **kwargs):
@@ -15,6 +17,7 @@ class ModA2C(A2C):
             actions = rollout_data.actions
 
             # evaluate actions based on the current policy given the observations and actions from the rollout buffer
+            # returns - estimated value, log likelihood of taking those actions and entropy of the action distribution.
             values, log_prob, entropy = self.policy.evaluate_actions(rollout_data.observations, actions)
 
             # relative improvement over baseline
@@ -79,7 +82,8 @@ class ModA2C(A2C):
         # reward shaping logic
         return rewards * 2.0 if rewards > 0 else rewards - 0.5
 
-    def predict(self, observation, state=None, episode_start=None, deterministic=False):
+    # Prediction logic with action selection strategy
+    def select_action(self, observation, state=None, episode_start=None, deterministic=False):
         # prediction logic
         self.policy.set_training_mode(False)
 
@@ -94,7 +98,7 @@ class ModA2C(A2C):
 
         actions = actions.cpu().numpy()
 
-        return actions, state
+        return actions.item()
 
     def action_selection(self, actions, obs):
         # Exploration strategies during action selection
