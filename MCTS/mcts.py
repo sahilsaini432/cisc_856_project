@@ -4,16 +4,16 @@ import math
 from copy import deepcopy
 
 
-class MCTSNode:
+class Node:
     """Represents a single node in the MCTS search tree."""
 
-    def __init__(self, state, parent=None, action=None):
+    def __init__(self, state, parent, action):
         self.state = state
         self.parent = parent
         self.action = action
         self.children = []
-        self.visits = 0
-        self.value = 0.0
+        self.visits = 0  # Number of times this node was visited
+        self.value = 0.0  # Total value (reward) accumulated from simulations passing through this node
         self.untried_actions = []
         self.done = False  # Whether this node represents a terminal state
 
@@ -24,33 +24,24 @@ class MCTSNode:
     def is_terminal(self):
         return self.done
 
-    def ucb1(self, exploration_constant=math.sqrt(2)):
-        """
-        Calculate the UCB1 value for this node.
-
-        The UCB1 formula balances exploitation (average value) with
-        exploration (bonus for less-visited nodes):
-            UCB1 = (value / visits) + c * sqrt(ln(parent.visits) / visits)
-
-        Args:
-            exploration_constant: The exploration parameter c (default sqrt(2)).
-
-        Returns:
-            The UCB1 score for this node.
-        """
-        pass
+    def ucb1_score(self, exploration_constant):
+        # UCB1 = (value / visits) + exploration_constant * sqrt(ln(parent.visits) / visits)
+        if self.visits == 0:
+            return float("inf")
+        score = (self.value / self.visits) + exploration_constant * math.sqrt(
+            math.log(self.parent.visits) / self.visits
+        )
+        return score
 
     def best_child(self, exploration_constant=math.sqrt(2)):
-        """
-        Select the child node with the highest UCB1 value.
-
-        Args:
-            exploration_constant: The exploration parameter c passed to UCB1.
-
-        Returns:
-            The child MCTSNode with the highest UCB1 score.
-        """
-        pass
+        max_score = float("-inf")
+        best_child = None
+        for child in self.children:
+            score = child.ucb1_score(exploration_constant)
+            if score > max_score:
+                max_score = score
+                best_child = child
+        return best_child
 
 
 class MCTS:
