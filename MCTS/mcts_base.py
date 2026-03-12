@@ -50,7 +50,9 @@ class MCTSBase:
     """Monte Carlo Tree Search algorithm"""
 
     def __init__(self, env: gym.Env, num_simulations, exploration_constant, max_rollout_depth):
-        self.env: gym.Env = env
+        # Headless sim env for cloning — strip render_mode so simulations don't render
+        sim_kwargs = {k: v for k, v in env.unwrapped.spec.kwargs.items() if k != "render_mode"}
+        self.sim_env: gym.Env = gym.make(env.unwrapped.spec.id, **sim_kwargs)
         self.num_simulations = num_simulations
         self.exploration_constant = exploration_constant
         self.max_rollout_depth = max_rollout_depth
@@ -64,7 +66,7 @@ class MCTSBase:
         # Create the root node for the current state
         root = Node(state=state, parent=None, action=None)
         # No actions have been tried from the root yet, so initialize the untried actions to all possible actions
-        root.untried_actions = list(range(len(self.env.action_space)))
+        root.untried_actions = list(range(self.sim_env.action_space.n))
 
         for _ in range(self.num_simulations):
             # Selection: Start from the root and select child nodes until we reach a node that is not fully expanded or is terminal
@@ -105,9 +107,10 @@ class MCTSBase:
         # Simulate the action in the cloned environment
         next_state, reward, done, _, _ = cloned_env.step(action)
         child_node = Node(state=next_state, parent=node, action=action)
+        child_node.done = done
 
-        # Initialize the child node's untried actions
-        child_node.untried_actions = list(range(self.env.action_space.n))
+        # Initialize the child node's untried actions (empty if terminal)
+        child_node.untried_actions = [] if done else list(range(self.sim_env.action_space.n))
 
         return child_node
 
@@ -131,7 +134,7 @@ class MCTSBase:
             node = node.parent
 
     def get_action_probabilities(self, root: Node):
-        action_probabilities = np.zeros(len(self.env.action_space))
+        action_probabilities = np.zeros(self.sim_env.action_space.n)
         total_visits = sum(child.visits for child in root.children)
         if total_visits == 0:
             return action_probabilities
@@ -141,7 +144,7 @@ class MCTSBase:
         return action_probabilities
 
     def clone_env_state(self, state) -> gym.Env:
-        cloned_env: gym.Env = deepcopy(self.env)
+        cloned_env: gym.Env = deepcopy(self.sim_env)
         cloned_env.reset()
         # overwrites the state to the specific one you want
         cloned_env.unwrapped.state = state

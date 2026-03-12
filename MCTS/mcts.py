@@ -48,7 +48,8 @@ class MCTS:
     """Monte Carlo Tree Search algorithm"""
 
     def __init__(self, env: gym.Env, num_simulations, exploration_constant, max_rollout_depth):
-        self.env: gym.Env = env
+        # Headless sim env for cloning — avoids deepcopy failing on pygame surfaces
+        self.sim_env: gym.Env = gym.make(env.unwrapped.spec.id, **env.unwrapped.spec.kwargs)
         self.num_simulations = num_simulations
         self.exploration_constant = exploration_constant
         self.max_rollout_depth = max_rollout_depth
@@ -133,7 +134,7 @@ class MCTS:
         return action_probabilities
 
     def clone_env_state(self, state) -> gym.Env:
-        cloned_env: gym.Env = deepcopy(self.env)
+        cloned_env: gym.Env = deepcopy(self.sim_env)
         cloned_env.reset()
         # overwrites the state to the specific one you want
         cloned_env.unwrapped.state = state

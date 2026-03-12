@@ -9,6 +9,7 @@ from gymnasium.envs.toy_text.frozen_lake import generate_random_map
 from A2C.base_A2C import ModA2C
 from MCTS.mcts import MCTS
 from MCTS.mcts_base import MCTSBase
+from metrics.plot import plot_progress
 
 
 def selected_agent(args):
@@ -42,6 +43,7 @@ def evaluate_mcts(env, agent, episodes):
     print(f"Success rate:   {successes / episodes * 100:.1f}%")
     print(f"Avg reward:     {sum(total_rewards) / episodes:.4f}")
     print(f"Min/Max reward: {min(total_rewards):.4f} / {max(total_rewards):.4f}")
+    plot_progress(total_rewards, type(agent).__name__)
     return total_rewards
 
 
@@ -87,6 +89,13 @@ def test_agent(env, agent):
             print(f"Environment reset. New observation: {obs}")
 
 
+def canTest(args):
+    if args.mcts_base:
+        return False
+    else:
+        return True
+
+
 if __name__ == "__main__":
     # Parse command line arguments
     parser = argparse.ArgumentParser()
@@ -95,7 +104,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Set up the environment
-    env = gym.make("FrozenLake-v1", desc=generate_random_map(size=8), is_slippery=True, render_mode="human")
+    env = gym.make("FrozenLake-v1", desc=generate_random_map(size=4), is_slippery=False, render_mode="human")
 
     # Initialize agent
     agent = selected_agent(args)
@@ -104,4 +113,5 @@ if __name__ == "__main__":
     train_agent(env, agent, args.episodes)
 
     # Test the agent
-    test_agent(env, agent)
+    if canTest(args):
+        test_agent(env, agent)
