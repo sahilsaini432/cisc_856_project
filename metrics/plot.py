@@ -1,11 +1,14 @@
 import os
+from os import path
 import sys
 import matplotlib.pyplot as plt
 import numpy as np
 
 
-def plot_progress(total_rewards, alg_name, window=10):
+def plot_progress(total_rewards, alg_name):
     n = len(total_rewards)
+    # Set window size to 10% of total episode length, at least 1
+    window = max(1, n // 10)
     episodes = np.arange(1, n + 1)
     rolling_avg = np.convolve(total_rewards, np.ones(window) / window, mode="valid")
 
@@ -40,6 +43,6 @@ def plot_progress(total_rewards, alg_name, window=10):
     )
 
     plt.tight_layout()
-    filename = f"/graphs/{alg_name}_progress.png"
+    filename = path.join("graphs", f"{alg_name}_progress.png")
     plt.savefig(filename)
     plt.show()
