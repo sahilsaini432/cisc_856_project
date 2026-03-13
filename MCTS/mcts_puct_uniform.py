@@ -1,71 +1,42 @@
 import gymnasium as gym
-import math
 import numpy as np
 from copy import deepcopy
+from MCTS.helper.selection_strategy import PUCTStrategy
+from MCTS.helper.node import Node
 
 # Rollout policy: Random
 # Final Action selection: Most visited child (robust child)
-# Selection policy: UCB1 — Q(v) + C * sqrt(ln(N_parent) / N_v)
+# Selection policy: PUCT — Q(v) + C * P(a) * sqrt(N_parent) / (1 + N_v) (used in AlphaGo/AlphaZero)
 
 
-class Node:
-    """Represents a single node in the MCTS search tree."""
-
-    def __init__(self, state, parent, action):
-        self.state = state
-        self.parent: Node = parent
-        self.action = action
-        self.children: list[Node] = []
-        self.visits = 0  # Number of times this node was visited
-        self.value = 0.0  # Total value (reward) accumulated from simulations passing through this node
-        self.untried_actions = []
-        self.done = False  # Whether this node represents a terminal state
-        self.terminal_reward = 0.0  # Reward stored at creation for terminal nodes
-
-    def is_fully_expanded(self):
-        # If no untried actions remain, this node is fully expanded
-        return len(self.untried_actions) == 0
-
-    def is_terminal(self):
-        return self.done
-
-    def ucb1_score(self, exploration_constant):
-        # UCB1 = Q(v) + C * sqrt(ln(N_parent) / N_v)
-        if self.visits == 0:
-            return float("inf")
-        q = self.value / self.visits
-        score = q + exploration_constant * math.sqrt(math.log(self.parent.visits) / self.visits)
-        return score
-
-    def best_child(self, exploration_constant) -> "Node":
-        scores = [child.ucb1_score(exploration_constant) for child in self.children]
-        max_score = max(scores)
-        best_children = [child for child, s in zip(self.children, scores) if s == max_score]
-        return np.random.choice(best_children)
-
-
-class MCTS_UCB1:
-    """Monte Carlo Tree Search algorithm"""
+class MCTS_PUCT_Uniform:
+    """Monte Carlo Tree Search with PUCT selection (AlphaGo/AlphaZero-style)."""
 
     def __init__(self, env: gym.Env, num_simulations, exploration_constant, max_rollout_depth, verbose=False):
         # Headless sim env for cloning — strip render_mode so simulations don't render
         sim_kwargs = {k: v for k, v in env.unwrapped.spec.kwargs.items() if k != "render_mode"}
         self.sim_env: gym.Env = gym.make(env.unwrapped.spec.id, **sim_kwargs)
         self.num_simulations = num_simulations
-        self.exploration_constant = exploration_constant
         self.max_rollout_depth = max_rollout_depth
+        self.strategy = PUCTStrategy(exploration_constant)
         self.verbose = verbose
 
     def log(self, message):
         if self.verbose:
             print(message)
 
-    # Decides the best action to take from the given state by running MCTS simulations
+    def _uniform_prior(self) -> float:
+        """Uniform prior: 1 / num_actions. Replace this with a policy network for a real prior."""
+        return 1.0 / self.sim_env.action_space.n
+
     def search(self, state):
+        prior = self._uniform_prior()
         # Create the root node for the current state
-        root = Node(state=state, parent=None, action=None)
+        root = Node(state=state, parent=None, action=None, prior=prior)
         # No actions have been tried from the root yet, so initialize the untried actions to all possible actions
         root.untried_actions = list(range(self.sim_env.action_space.n))
+        # by initializing root.visits = 1 so sqrt(parent.visits) is defined for root's children
+        root.visits = 1
 
         for _ in range(self.num_simulations):
             # Selection: Start from the root and select child nodes until we reach a node that is not fully expanded or is terminal
@@ -95,7 +66,7 @@ class MCTS_UCB1:
             self.log(f"\n--- Search from state {state} (root visits={root.visits}) ---")
             for child in sorted(root.children, key=lambda c: c.visits, reverse=True):
                 q = child.value / child.visits if child.visits > 0 else 0.0
-                ucb1 = child.ucb1_score(self.exploration_constant) if child.visits > 0 else float("inf")
+                puct = self.strategy.score(child)
                 terminal_tag = (
                     f" [TERMINAL reward={child.terminal_reward:.2f}]" if child.is_terminal() else ""
                 )
@@ -105,7 +76,8 @@ class MCTS_UCB1:
                     f"-> state={child.state:<4} "
                     f"visits={child.visits:<6} "
                     f"Q={q:+.6f}  "
-                    f"UCB1={ucb1:+.6f}"
+                    f"PUCT={puct:+.6f}  "
+                    f"P={child.prior:.4f}"
                     f"{terminal_tag}{chosen_tag}"
                 )
 
@@ -116,7 +88,7 @@ class MCTS_UCB1:
         current_Node = node
         # Find a leaf node to expand: keep selecting the best child until we find a node that is not fully expanded or is terminal
         while current_Node.is_fully_expanded() and not current_Node.is_terminal():
-            best_node = current_Node.best_child(self.exploration_constant)
+            best_node = self.strategy.best_child(current_Node)
 
             if best_node is None:
                 break  # No children, return the current leaf node
@@ -130,7 +102,8 @@ class MCTS_UCB1:
 
         # Simulate the action in the cloned environment
         next_state, step_reward, done, truncated, info = cloned_env.step(action)
-        child_node = Node(state=next_state, parent=node, action=action)
+        prior = self._uniform_prior()
+        child_node = Node(state=next_state, parent=node, action=action, prior=prior)
 
         # Treat wall hits (same state, not done) as terminal to prevent infinite cycles
         is_wall_hit = next_state == node.state and not done
@@ -166,16 +139,6 @@ class MCTS_UCB1:
             node.visits += 1
             node.value += reward
             node = node.parent
-
-    def get_action_probabilities(self, root: Node):
-        action_probabilities = np.zeros(self.sim_env.action_space.n)
-        total_visits = sum(child.visits for child in root.children)
-        if total_visits == 0:
-            return action_probabilities
-
-        for child in root.children:
-            action_probabilities[child.action] = child.visits / total_visits
-        return action_probabilities
 
     def clone_env_state(self, state) -> gym.Env:
         cloned_env: gym.Env = deepcopy(self.sim_env)

@@ -1,50 +1,12 @@
 import gymnasium as gym
 import numpy as np
-import math
 from copy import deepcopy
+from MCTS.helper.selection_strategy import UCTStrategy
+from MCTS.helper.node import Node
 
 # Rollout policy: Random
 # Final Action selection: Most visited child (robust child)
 # Selection policy: UCT with reward normalization to [0, 1] based on observed min/max rewards in the tree (to handle different reward scales across environments)
-
-
-class Node:
-    """Represents a single node in the MCTS search tree."""
-
-    def __init__(self, state, parent, action):
-        self.state = state
-        self.parent: Node = parent
-        self.action = action
-        self.children: list[Node] = []
-        self.visits = 0  # Number of times this node was visited
-        self.value = 0.0  # Total value (reward) accumulated from simulations passing through this node
-        self.untried_actions = []
-        self.done = False  # Whether this node represents a terminal state
-        self.terminal_reward = 0.0  # Reward stored at creation for terminal nodes
-
-    def is_fully_expanded(self):
-        # If no untried actions remain, this node is fully expanded
-        return len(self.untried_actions) == 0
-
-    def is_terminal(self):
-        return self.done
-
-    def uct_score(self, exploration_constant, min_value, max_value):
-        # UCT = normalize(Q) + exploration_constant * sqrt(ln(parent.visits) / visits)
-        # Normalizing Q to [0, 1] makes the exploration term comparable across the tree
-        if self.visits == 0:
-            return float("inf")
-        q = self.value / self.visits
-        value_range = max_value - min_value
-        normalized_q = (q - min_value) / value_range if value_range > 1e-8 else 0.5
-        score = normalized_q + exploration_constant * math.sqrt(math.log(self.parent.visits) / self.visits)
-        return score
-
-    def best_child(self, exploration_constant, min_value, max_value) -> "Node":
-        scores = [child.uct_score(exploration_constant, min_value, max_value) for child in self.children]
-        max_score = max(scores)
-        best_children = [child for child, s in zip(self.children, scores) if s == max_score]
-        return np.random.choice(best_children)
 
 
 class MCTSBase:
@@ -55,10 +17,8 @@ class MCTSBase:
         sim_kwargs = {k: v for k, v in env.unwrapped.spec.kwargs.items() if k != "render_mode"}
         self.sim_env: gym.Env = gym.make(env.unwrapped.spec.id, **sim_kwargs)
         self.num_simulations = num_simulations
-        self.exploration_constant = exploration_constant
         self.max_rollout_depth = max_rollout_depth
-        self.min_value = float("inf")
-        self.max_value = float("-inf")
+        self.strategy = UCTStrategy(exploration_constant)
         self.verbose = verbose
 
     def log(self, message):
@@ -67,8 +27,7 @@ class MCTSBase:
 
     # Decides the best action to take from the given state by running MCTS simulations
     def search(self, state):
-        self.min_value = float("inf")
-        self.max_value = float("-inf")
+        self.strategy.reset()
         # Create the root node for the current state
         root = Node(state=state, parent=None, action=None)
         # No actions have been tried from the root yet, so initialize the untried actions to all possible actions
@@ -90,8 +49,7 @@ class MCTSBase:
                     if child_node.is_terminal()
                     else step_reward + self.rollout(child_node)
                 )
-                self.min_value = min(self.min_value, reward)
-                self.max_value = max(self.max_value, reward)
+                self.strategy.update(reward)
                 self.backpropagate(child_node, reward)
 
         # Get best child from the root — random tiebreaking when visits are equal
@@ -104,11 +62,7 @@ class MCTSBase:
             self.log(f"\n--- Search from state {state} (root visits={root.visits}) ---")
             for child in sorted(root.children, key=lambda c: c.visits, reverse=True):
                 q = child.value / child.visits if child.visits > 0 else 0.0
-                ucb1 = (
-                    child.uct_score(self.exploration_constant, self.min_value, self.max_value)
-                    if child.visits > 0
-                    else float("inf")
-                )
+                uct = self.strategy.score(child) if child.visits > 0 else float("inf")
                 terminal_tag = (
                     f" [TERMINAL reward={child.terminal_reward:.2f}]" if child.is_terminal() else ""
                 )
@@ -118,7 +72,7 @@ class MCTSBase:
                     f"-> state={child.state:<4} "
                     f"visits={child.visits:<6} "
                     f"Q={q:+.6f}  "
-                    f"UCT={ucb1:+.6f}"
+                    f"UCT={uct:+.6f}"
                     f"{terminal_tag}{chosen_tag}"
                 )
 
@@ -129,8 +83,7 @@ class MCTSBase:
         current_Node = node
         # Find a leaf node to expand: keep selecting the best child until we find a node that is not fully expanded or is terminal
         while current_Node.is_fully_expanded() and not current_Node.is_terminal():
-            best_node = current_Node.best_child(self.exploration_constant, self.min_value, self.max_value)
-
+            best_node = self.strategy.best_child(current_Node)
             if best_node is None:
                 break  # No children, return the current leaf node
             current_Node = best_node

@@ -10,6 +10,7 @@ from A2C.base_A2C import ModA2C
 from MCTS.mcts_greedy_rollout import MCTS_GreedyRollout
 from MCTS.mcts_ucb1 import MCTS_UCB1
 from MCTS.mcts_base import MCTSBase
+from MCTS.mcts_puct_uniform import MCTS_PUCT_Uniform
 from metrics.plot import plot_progress, plot_time_stats
 
 four_x_four_map = [
@@ -83,6 +84,14 @@ def selected_agent(args):
             epsilon=0.1,  # 10% random actions in rollout
             verbose=args.verbose,
         )
+    elif args.mcts_puct_uniform:
+        return MCTS_PUCT_Uniform(
+            env=env,
+            num_simulations=sim_count,
+            exploration_constant=1.4,
+            max_rollout_depth=rollout_depth,
+            verbose=args.verbose,
+        )
 
     return ModA2C("MlpPolicy", env)
 
@@ -143,7 +152,7 @@ def evaluate_mcts(env, agent, episodes, args):
 
 
 def train_agent(env, agent, episodes, args):
-    if isinstance(agent, (MCTSBase, MCTS_UCB1, MCTS_GreedyRollout)):
+    if isinstance(agent, (MCTSBase, MCTS_UCB1, MCTS_GreedyRollout, MCTS_PUCT_Uniform)):
         evaluate_mcts(env, agent, episodes, args=args)
     else:
         # Train the agent
@@ -185,7 +194,7 @@ def test_agent(env, agent):
 
 
 def canTest(args):
-    if args.mcts_base or args.mcts_ucb1 or args.mcts_greedy:
+    if args.mcts_base or args.mcts_ucb1 or args.mcts_greedy or args.mcts_puct_uniform:
         return False
     else:
         return True
@@ -198,6 +207,9 @@ if __name__ == "__main__":
     parser.add_argument("--mcts_base", action="store_true", help="Use MCTS as the base agent")
     parser.add_argument("--mcts_ucb1", action="store_true", help="Use MCTS with UCB1 for selection")
     parser.add_argument("--mcts_greedy", action="store_true", help="Use MCTS with greedy rollout policy")
+    parser.add_argument(
+        "--mcts_puct_uniform", action="store_true", help="Use MCTS with PUCT selection with Uniform Prior"
+    )
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose logging")
     parser.add_argument("--human", default=False, action="store_true", help="Enable human render")
     parser.add_argument(
